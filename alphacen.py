@@ -9,7 +9,7 @@ from jax import random as jr
 import dLux as dl
 
 
-class AlfCen:
+class Psf:
 
     """
     A class to to build TOLIMAN model of Alpha Centauri A and B.
@@ -122,7 +122,6 @@ class AlfCen:
         result = np.convolve(PSF, kernel, mode='same')
 
         return result
-
 
     def AddNoise(self, PSF):
         """Adding poissonian and detector noise to PSF.
