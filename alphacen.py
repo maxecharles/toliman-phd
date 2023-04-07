@@ -6,7 +6,10 @@ Creating class for the Alpha Centauri model.
 # importing
 from jax import numpy as np
 from jax import random as jr
+from numpy import random as rd
 import dLux as dl
+from PIL import Image, ImageDraw
+from scipy.signal import convolve2d
 
 
 class Psf:
@@ -14,35 +17,33 @@ class Psf:
     """
     A class to to build TOLIMAN model of Alpha Centauri A and B.
 
-    ...
-
     Attributes
     ----------
-    sep : float
-        binary separation in arcseconds
+        sep : float
+            binary separation in arcseconds
 
-    pa : float
-        position angle in degrees
+        pa : float
+            position angle in degrees
 
-    flux : float
-        average flux of the two stars in photons per frame
+        flux : float
+            average flux of the two stars in photons per frame
 
-    contrast : float
-        flux contrast between two stars
+        contrast : float
+            flux contrast between two stars
 
-    mask_dir : string
-        Disk directory of numpy array containing mask
+        mask_dir : string
+            Disk directory of numpy array containing mask
 
     Methods
     -------
-    GetPSF(wavefront_npixels=256, detector_npixels=128, sampling_rate=5,):
-        Generates point spread function
+        GetPSF(wavefront_npixels=256, detector_npixels=128, sampling_rate=5,):
+            Generates point spread function
 
-    AddNoise(ideal_PSF):
-        Adds poissonian and detector noise to point spread function
+        AddNoise(ideal_PSF):
+            Adds poissonian and detector noise to point spread function
 
-    LinearJitter(PSF):
-        Convolves PSF with a line to simulate linear jitter.
+        LinearJitter(PSF):
+            Convolves PSF with a line to simulate linear jitter.
 
     """
 
@@ -100,41 +101,18 @@ class Psf:
         ideal_PSF = tol.model()
         return ideal_PSF
 
-    def LinearJitter(self, PSF):
-        """Convolving PSF with a line to simulate linear jitter.
-
-        Parameters
-        ----------
-        PSF : numpy array
-            PSF of Alpha Cen
-
-        Returns
-        -------
-        result : numpy array
-            PSF with linear jitter
-        """
-        # TODO make this random direction
-
-        # Generate kernel
-        kernel = np.eye(10, 10)
-
-        # Convolve PSF with kernel
-        result = np.convolve(PSF, kernel, mode='same')
-
-        return result
-
     def AddNoise(self, PSF):
         """Adding poissonian and detector noise to PSF.
 
         Parameters
         ----------
-        PSF : numpy array
-            Ideal PSF of Alpha Cen
+            PSF : numpy array
+                Ideal PSF of Alpha Cen
 
         Returns
         -------
-        noisy_PSF : numpy array
-            Noisy PSF of Alpha Cen
+            noisy_PSF : numpy array
+                Noisy PSF of Alpha Cen
         """
 
         noisy_PSF = jr.poisson(self.key[0], PSF)
@@ -142,3 +120,50 @@ class Psf:
         noisy_PSF += det_noise
 
         return noisy_PSF
+
+    def LinearJitter(self, PSF, radius=12, theta=None, im_size=25):
+        """Convolving PSF with a line to simulate linear jitter.
+
+        Parameters
+        -------
+            PSF : numpy array
+                PSF of Alpha Cen
+
+            radius : int, optional
+                Radius of jitter line in pixels. The default is 12.
+
+            theta : float, optional
+                Angle of jitter line in radians. If None, a random direction is generated.
+
+            im_size : int, optional
+                Size of convolution kernel in pixels. The default is 25.
+
+        Returns
+        -------
+            jit_PSF : numpy array
+                PSF with linear jitter
+        """
+
+        def sample_circle(centre: tuple, r: float, theta: float):
+            """Function to sample a circle for random direction."""
+            h, k = centre
+            x = h + r * np.sin(theta)
+            y = k + r * np.cos(theta)
+            return x, y
+
+        origin = (im_size // 2, im_size // 2)  # for centre of image
+        if theta is None:
+            theta = rd.uniform(0, 2 * np.pi)  # generating random theta
+
+        points = [origin, sample_circle(origin, radius, theta)]  # creating line endpoints
+        kernel_img = Image.new("1", (im_size, im_size))  # creating new Image object
+        img = ImageDraw.Draw(kernel_img)  # create image
+        img.line(points, fill="white", width=0)  # drawing line on image
+        kernel = np.asarray(kernel_img)
+
+        # convolving PSF with line
+        PSF_sum = np.sum(PSF)
+        jit_PSF = convolve2d(PSF, kernel, mode='same')
+        jit_PSF = jit_PSF / np.sum(jit_PSF) * PSF_sum
+
+        return jit_PSF
