@@ -31,9 +31,6 @@ class Psf:
         contrast : float
             flux contrast between two stars
 
-        mask_dir : string
-            Disk directory of numpy array containing mask
-
     Methods
     -------
         GetPSF(wavefront_npixels=256, detector_npixels=128, sampling_rate=5,):
@@ -50,9 +47,8 @@ class Psf:
     # Parameters for Alpha Cen model
     sep = 10  # binary separation in arcseconds
     pa = 90  # position angle in degrees
-    flux = 1e4  # average flux of the two stars
+    flux = 6.152e7 / 10 / 2  # AVERAGE flux of the two stars per frame
     contrast = 3.372873  # flux contrast from V band magnitudes
-    mask_dir = 'AlfCenModel/data/test_mask.npy'
 
     # other system parameters
     wavels = 1e-9 * np.linspace(595, 695, 3)  # wavelengths
@@ -121,7 +117,7 @@ class Psf:
 
         return noisy_PSF
 
-    def LinearJitter(self, PSF, radius=12, theta=None, im_size=25):
+    def AddJitter(self, PSF, radius=12, theta=None, im_size=25):
         """Convolving PSF with a line to simulate linear jitter.
 
         Parameters
@@ -141,7 +137,7 @@ class Psf:
         Returns
         -------
             jit_PSF : numpy array
-                PSF with linear jitter
+                PSF with linear jitter applied
         """
 
         def sample_circle(centre: tuple, r: float, theta: float):
@@ -159,11 +155,12 @@ class Psf:
         kernel_img = Image.new("1", (im_size, im_size))  # creating new Image object
         img = ImageDraw.Draw(kernel_img)  # create image
         img.line(points, fill="white", width=0)  # drawing line on image
-        kernel = np.asarray(kernel_img)
+        kernel = np.asarray(kernel_img)  # convert image to numpy array
 
         # convolving PSF with line
-        PSF_sum = np.sum(PSF)
         jit_PSF = convolve2d(PSF, kernel, mode='same')
+        # renormalising to intensity before convolution
+        PSF_sum = np.sum(PSF)
         jit_PSF = jit_PSF / np.sum(jit_PSF) * PSF_sum
 
         return jit_PSF
