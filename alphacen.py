@@ -1,5 +1,5 @@
 """
-Creating class for the Alpha Centauri model.
+Module for functions and classes for developing a model of Alpha Centauri.
 """
 
 
@@ -117,50 +117,55 @@ class Psf:
 
         return noisy_PSF
 
-    def AddJitter(self, PSF, radius=12, theta=None, im_size=25):
-        """Convolving PSF with a line to simulate linear jitter.
 
-        Parameters
-        -------
-            PSF : numpy array
-                PSF of Alpha Cen
+def linear_jitter(PSF, radius=12, theta=None, im_size=25):
+    """Convolving PSF with a line to simulate linear jitter.
 
-            radius : int, optional
-                Radius of jitter line in pixels. The default is 12.
+    Parameters
+    -------
+        PSF : numpy array
+            PSF of Alpha Cen
 
-            theta : float, optional
-                Angle of jitter line in radians. If None, a random direction is generated.
+        radius : int, optional
+            Radius of jitter line in pixels. The default is 12.
 
-            im_size : int, optional
-                Size of convolution kernel in pixels. The default is 25.
+        theta : float, optional
+            Angle of jitter line in radians. If None, a random direction is generated.
 
-        Returns
-        -------
-            jit_PSF : numpy array
-                PSF with linear jitter applied
-        """
+        im_size : int, optional
+            Size of convolution kernel in pixels. The default is 25.
 
-        def sample_circle(centre: tuple, r: float, theta: float):
-            """Function to sample a circle for random direction."""
-            h, k = centre
-            x = h + r * np.sin(theta)
-            y = k + r * np.cos(theta)
-            return x, y
+    Returns
+    -------
+        jit_PSF : numpy array
+            PSF with linear jitter applied
+    """
 
-        origin = (im_size // 2, im_size // 2)  # for centre of image
-        if theta is None:
-            theta = rd.uniform(0, 2 * np.pi)  # generating random theta
+    def sample_circle(centre: tuple, r: float, theta: float):
+        """Function to sample a circle for random direction."""
+        h, k = centre
+        x = h + r * np.sin(theta)
+        y = k + r * np.cos(theta)
+        return x, y
 
-        points = [origin, sample_circle(origin, radius, theta)]  # creating line endpoints
-        kernel_img = Image.new("1", (im_size, im_size))  # creating new Image object
-        img = ImageDraw.Draw(kernel_img)  # create image
-        img.line(points, fill="white", width=0)  # drawing line on image
-        kernel = np.asarray(kernel_img)  # convert image to numpy array
+    # enforce odd image size
+    if im_size % 2 != 1:
+        raise ValueError("`im_size` must be an odd integer.")
 
-        # convolving PSF with line
-        jit_PSF = convolve2d(PSF, kernel, mode='same')
-        # renormalising to intensity before convolution
-        PSF_sum = np.sum(PSF)
-        jit_PSF = jit_PSF / np.sum(jit_PSF) * PSF_sum
+    origin = (im_size // 2, im_size // 2)  # for centre of image
+    if theta is None:
+        theta = rd.uniform(0, 2 * np.pi)  # generating random theta
 
-        return jit_PSF
+    points = [origin, sample_circle(origin, radius, theta)]  # creating line endpoints
+    kernel_img = Image.new("1", (im_size, im_size))  # creating new Image object
+    img = ImageDraw.Draw(kernel_img)  # create image
+    img.line(points, fill="white", width=0)  # drawing line on image
+    kernel = np.asarray(kernel_img)  # convert image to numpy array
+
+    # convolving PSF with line
+    jit_PSF = convolve2d(PSF, kernel, mode='same')
+    # renormalising to intensity before convolution
+    PSF_sum = np.sum(PSF)
+    jit_PSF = jit_PSF / np.sum(jit_PSF) * PSF_sum
+
+    return jit_PSF
