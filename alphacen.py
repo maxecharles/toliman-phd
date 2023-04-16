@@ -47,11 +47,13 @@ class Psf:
     # Parameters for Alpha Cen model
     sep = 10  # binary separation in arcseconds
     pa = 90  # position angle in degrees
-    flux = 6.152e7 / 10 / 2  # AVERAGE flux of the two stars per frame
+    flux = 6.229e7 / 10 / 2  # AVERAGE flux of the two stars per frame
     contrast = 3.372873  # flux contrast from V band magnitudes
+    bandwidth_min = 545  # minimum wavelength in nm
+    bandwidth_max = 645  # maximum wavelength in nm
 
     # other system parameters
-    wavels = 1e-9 * np.linspace(595, 695, 3)  # wavelengths
+    wavels = 1e-9 * np.linspace(bandwidth_min, bandwidth_max, 3)  # wavelengths in m
 
     def __init__(self, seed: int = 0):
         self.key = [jr.PRNGKey(seed), jr.PRNGKey(seed+1)]
