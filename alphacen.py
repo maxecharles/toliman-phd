@@ -64,12 +64,13 @@ class Psf:
         mask = dl.optics.AddOPD(dl.utils.phase_to_opd(np.load(mask_dir), wavelength=self.wavels.mean()))
         return mask
 
-    def GetPSF(self,
-               mask,
-               wavefront_npixels=256,  # wavefront layer size
-               detector_npixels=128,  # detector size
-               sampling_rate=5,  # pixels per fringe i.e. 5x Nyquist
-               ):
+    def GetInstrument(self,
+                      mask,
+                      wavefront_npixels=256,  # wavefront layer size
+                      detector_npixels=128,  # detector size
+                      sampling_rate=5,  # pixels per fringe i.e. 5x Nyquist
+                      pscale=0.3,  # pixel scale in arcseconds
+                      ):
         """Generating PSF of Alpha Cen through TOLIMAN."""
 
         detector_pixel_size = dl.utils.get_pixel_scale(sampling_rate, self.wavels.max(), 0.125)
@@ -82,7 +83,7 @@ class Psf:
                                   angular=True)
 
         # Resetting the pixel scale of output
-        optics = optics.set(['AngularMFT.pixel_scale_out'], [dl.utils.arcseconds_to_radians(.375)])
+        optics = optics.set(['AngularMFT.pixel_scale_out'], [dl.utils.arcseconds_to_radians(pscale)])
 
         # Creating a model Alpha Cen source
         source = dl.BinarySource(separation=dl.utils.arcseconds_to_radians(self.sep),
@@ -93,11 +94,9 @@ class Psf:
                                  )
 
         # Creating the instrument by combining optics and source
-        tol = dl.Instrument(optics=optics, sources=[source])
+        tel = dl.Instrument(optics=optics, sources=[source])
 
-        # Generating and returning the PSF
-        ideal_PSF = tol.model()
-        return ideal_PSF
+        return tel
 
     def AddNoise(self, PSF):
         """Adding poissonian and detector noise to PSF.
