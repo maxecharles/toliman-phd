@@ -124,7 +124,7 @@ class Psf:
 
         return optics, source
 
-    def AddNoise(self, PSF):
+    def AddNoise(self, PSF):  # TODO bring this out of the class
         """Adding poissonian and detector noise to PSF.
 
         Parameters
