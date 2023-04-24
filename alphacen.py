@@ -6,6 +6,7 @@ Module for functions and classes for developing a model of Alpha Centauri.
 # importing
 from jax import numpy as np
 from jax import random as jr
+from jax import vmap
 from numpy import random as rd
 import dLux as dl
 from PIL import Image, ImageDraw
@@ -144,54 +145,51 @@ class Psf:
         return noisy_PSF
 
 
-def linear_jitter(PSF, radius=12, theta=None, im_size=25):
-    """Convolving PSF with a line to simulate linear jitter.
+def GetJitterFunc(optics, source):
+    """Generates a function to add jitter to the PSF given an optics and source."""
 
-    Parameters
-    -------
-        PSF : numpy array
-            PSF of Alpha Cen
+    # Defining a function to set the source position and propagate through the optics
+    def set_and_model(optics, source, pos):
+        src = source.set(['position'], [pos])
+        return optics.model(src)
 
-        radius : int, optional
-            Radius of jitter line in pixels. The default is 12.
+    vmap_prop = vmap(set_and_model, in_axes=(None, None, 0))
+    pixel_scale_out = optics.AngularMFT.pixel_scale_out  # arcseconds per pixel
 
-        theta : float, optional
-            Angle of jitter line in radians. If None, a random direction is generated.
+    def JitterPSF(rad: float, angle: float = 0, centre: tuple = (0,0), npsf: int = 10):
+        """
+        Returns a jittered PSF by summing a number of shifted PSFs.
 
-        im_size : int, optional
-            Size of convolution kernel in pixels. The default is 25.
+        Parameters
+        ----------
+        rad : float
+            The radius of the jitter in pixels.
+        angle : float, optional
+            The angle of the jitter in degrees, by default 0
+        centre : tuple, optional
+            The centre of the jitter in pixels, by default (0,0)
+        npsf : int, optional
+            The number of PSFs to sum, by default 10
 
-    Returns
-    -------
-        jit_PSF : numpy array
-            PSF with linear jitter applied
-    """
+        Returns
+        -------
+        np.ndarray
+            The jittered PSF.
+        """
 
-    def sample_circle(centre: tuple, r: float, theta: float):
-        """Function to sample a circle for random direction."""
-        h, k = centre
-        x = h + r * np.sin(theta)
-        y = k + r * np.cos(theta)
-        return x, y
+        angle = np.deg2rad(angle)  # converting to radius
 
-    # enforce odd image size
-    if im_size % 2 != 1:
-        raise ValueError("`im_size` must be an odd integer.")
+        # converting to cartesian coordinates
+        x = rad/2 * np.cos(angle)
+        y = rad/2 * np.sin(angle)
+        xs = np.linspace(-x, x, npsf)  # pixels
+        ys = np.linspace(-y, y, npsf)  # pixels
+        positions = pixel_scale_out * (np.stack([xs, ys], axis=1) + np.array(centre))  # arcseconds
 
-    origin = (im_size // 2, im_size // 2)  # for centre of image
-    if theta is None:
-        theta = rd.uniform(0, 2 * np.pi)  # generating random theta
+        psfs = vmap_prop(optics, source, positions)
+        jit_psf = psfs.sum(0) / npsf  # adding and renormalising
 
-    points = [origin, sample_circle(origin, radius, theta)]  # creating line endpoints
-    kernel_img = Image.new("1", (im_size, im_size))  # creating new Image object
-    img = ImageDraw.Draw(kernel_img)  # create image
-    img.line(points, fill="white", width=0)  # drawing line on image
-    kernel = np.asarray(kernel_img)  # convert image to numpy array
+        return jit_psf
 
-    # convolving PSF with line
-    jit_PSF = convolve2d(PSF, kernel, mode='same')
-    # renormalising to intensity before convolution
-    PSF_sum = np.sum(PSF)
-    jit_PSF = jit_PSF / np.sum(jit_PSF) * PSF_sum
+    return JitterPSF
 
-    return jit_PSF
