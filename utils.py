@@ -8,7 +8,7 @@ import matplotlib.colors as colors
 
 def PlotPSF(PSF, title: str = None):
     """
-    Plot the square root of the PSF.
+    Plot the PSF.
     """
 
     fig, ax = plt.subplots()
