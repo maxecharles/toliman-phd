@@ -33,30 +33,29 @@ class Psf:
 
     Methods
     -------
-        GetPSF(wavefront_npixels=256, detector_npixels=128, sampling_rate=5,):
-            Generates point spread function
+        LoadMask(mask_dir)
+            Loads mask from directory and converts phase to OPD
 
-        AddNoise(ideal_PSF):
-            Adds poissonian and detector noise to point spread function
+        GetInstrument(mask, wavefront_npixels, detector_npixels, sampling_rate, pixel_scale_out)
+            Generates optics and source for Alpha Cen model through TOLIMAN
 
-        LinearJitter(PSF):
-            Convolves PSF with a line to simulate linear jitter.
-
+        AddNoise(PSF)
     """
 
-    # Parameters for Alpha Cen model
+    # Parameters for Alpha Cen
     sep = 10  # binary separation in arcseconds
     pa = 90  # position angle in degrees
     flux = 6.229e7 / 10 / 2  # AVERAGE flux of the two stars per frame
     contrast = 3.372873  # flux contrast from V band magnitudes
-    bandwidth_min = 545  # minimum wavelength in nm
-    bandwidth_max = 645  # maximum wavelength in nm
 
-    # other system parameters
-    wavels = 1e-9 * np.linspace(bandwidth_min, bandwidth_max, 3)  # wavelengths in m
+    # TOLIMAN optical parameters
+    bandpass_min = 545  # minimum wavelength in nm
+    bandpass_max = 645  # maximum wavelength in nm
+    aperture = 0.125  # TOLIMAN aperture in m  #TODO: check this
 
-    def __init__(self, seed: int = 0):
+    def __init__(self, seed: int = 0, n_wavels: int = 3):
         self.key = [jr.PRNGKey(seed), jr.PRNGKey(seed+1)]
+        self.wavels = 1e-9 * np.linspace(self.bandpass_min, self.bandpass_max, n_wavels)  # wavelengths in m
         return
 
     # loading mask, converting phase to OPD and turning mask into a layer
@@ -69,21 +68,50 @@ class Psf:
                       wavefront_npixels=256,  # wavefront layer size
                       detector_npixels=128,  # detector size
                       sampling_rate=5,  # pixels per fringe i.e. 5x Nyquist
-                      pscale=0.3,  # pixel scale in arcseconds
+                      pixel_scale_out=0.3,  # pixel scale in arcseconds
                       ):
-        """Generating PSF of Alpha Cen through TOLIMAN."""
+        """
+        Generate the optics and source for an Alpha Cen model through TOLIMAN.
 
-        detector_pixel_size = dl.utils.get_pixel_scale(sampling_rate, self.wavels.max(), 0.125)
+        Parameters
+        ----------
+        mask : numpy array
+            Binary Phase Mask of TOLIMAN
+
+        wavefront_npixels : int, optional
+            Wavefront layer size. The default is 256.
+
+        detector_npixels : int, optional
+            Detector size. The default is 128.
+
+        sampling_rate : int, optional
+            Pixels per fringe. The default is 5 (i.e. 5x Nyquist).
+
+        pixel_scale_out : float, optional
+            Output pixel scale in arcseconds. The default is 0.3.
+
+        Returns
+        -------
+        optics : dLux optical system
+            TOLIMAN optical system
+
+        source : dLux source
+            Model Alpha Cen source
+        """
+
+        # Grabbing the pixel scale required for given sampling rate
+        pixel_scale_in = dl.utils.get_pixel_scale(sampling_rate, self.wavels.max(), self.aperture, focal_length=None)
 
         # Make optical system
         optics = dl.utils.toliman(wavefront_npixels,
                                   detector_npixels,
-                                  detector_pixel_size=dl.utils.radians_to_arcseconds(detector_pixel_size),
+                                  detector_pixel_size=dl.utils.radians_to_arcseconds(pixel_scale_in),
                                   extra_layers=[mask],
-                                  angular=True)
+                                  angular=True,
+                                  )
 
         # Resetting the pixel scale of output
-        optics = optics.set(['AngularMFT.pixel_scale_out'], [dl.utils.arcseconds_to_radians(pscale)])
+        optics = optics.set(['AngularMFT.pixel_scale_out'], [dl.utils.arcseconds_to_radians(pixel_scale_out)])
 
         # Creating a model Alpha Cen source
         source = dl.BinarySource(separation=dl.utils.arcseconds_to_radians(self.sep),
@@ -93,10 +121,7 @@ class Psf:
                                  position_angle=np.deg2rad(self.pa),
                                  )
 
-        # Creating the instrument by combining optics and source
-        tel = dl.Instrument(optics=optics, sources=[source])
-
-        return tel
+        return optics, source
 
     def AddNoise(self, PSF):
         """Adding poissonian and detector noise to PSF.
