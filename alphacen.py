@@ -2,19 +2,14 @@
 Module for functions and classes for developing a model of Alpha Centauri.
 """
 
-
 # importing
 from jax import numpy as np
 from jax import random as jr
 from jax import vmap
-from numpy import random as rd
 import dLux as dl
-from PIL import Image, ImageDraw
-from scipy.signal import convolve2d
 
 
-class Psf:
-
+class AlphaCenPSF:
     """
     A class to to build TOLIMAN model of Alpha Centauri A and B.
 
@@ -34,13 +29,9 @@ class Psf:
 
     Methods
     -------
-        LoadMask(mask_dir)
-            Loads mask from directory and converts phase to OPD
 
         GetInstrument(mask, wavefront_npixels, detector_npixels, sampling_rate, pixel_scale_out)
             Generates optics and source for Alpha Cen model through TOLIMAN
-
-        AddNoise(PSF)
     """
 
     # Parameters for Alpha Cen
@@ -52,16 +43,18 @@ class Psf:
     # TOLIMAN optical parameters
     bandpass_min = 545  # minimum wavelength in nm
     bandpass_max = 645  # maximum wavelength in nm
-    aperture = 0.125  # TOLIMAN aperture in m  #TODO: check this
+    aperture = 0.125  # TOLIMAN aperture in m  # TODO: check this
 
     def __init__(self, mask_dir: str, n_wavels: int = 3):
-        self.wavels = 1e-9 * np.linspace(self.bandpass_min, self.bandpass_max, n_wavels)  # wavelengths in m
+        # wavelengths in metres
+        self.wavels = 1e-9 * np.linspace(self.bandpass_min, self.bandpass_max, n_wavels)
         # loading mask, converting phase to OPD and turning mask into a layer
-        self.mask = dl.optics.AddOPD(dl.utils.phase_to_opd(np.load(mask_dir), wavelength=self.wavels.mean()))
-        return
+        self.mask = dl.optics.AddOPD(dl.utils.phase_to_opd(
+            np.load(mask_dir), wavelength=self.wavels.mean()
+        )
+        )
 
     def GetInstrument(self,
-                      mask,
                       wavefront_npixels=256,  # wavefront layer size
                       detector_npixels=128,  # detector size
                       sampling_rate=5,  # pixels per fringe i.e. 5x Nyquist
@@ -72,8 +65,6 @@ class Psf:
 
         Parameters
         ----------
-        mask : numpy array
-            Binary Phase Mask of TOLIMAN
 
         wavefront_npixels : int, optional
             Wavefront layer size. The default is 256.
@@ -97,18 +88,26 @@ class Psf:
         """
 
         # Grabbing the pixel scale required for given sampling rate
-        pixel_scale_in = dl.utils.get_pixel_scale(sampling_rate, self.wavels.max(), self.aperture, focal_length=None)
+        pixel_scale_in = dl.utils.get_pixel_scale(
+            sampling_rate,
+            self.wavels.max(),
+            self.aperture,
+            focal_length=None,
+        )
 
         # Make optical system
         optics = dl.utils.toliman(wavefront_npixels,
                                   detector_npixels,
                                   detector_pixel_size=dl.utils.radians_to_arcseconds(pixel_scale_in),
-                                  extra_layers=[mask],
+                                  extra_layers=[self.mask],
                                   angular=True,
                                   )
 
         # Resetting the pixel scale of output
-        optics = optics.set(['AngularMFT.pixel_scale_out'], [dl.utils.arcseconds_to_radians(pixel_scale_out)])
+        optics = optics.set(
+            ['AngularMFT.pixel_scale_out'],
+            [dl.utils.arcseconds_to_radians(pixel_scale_out)]
+        )
 
         # Creating a model Alpha Cen source
         source = dl.BinarySource(separation=dl.utils.arcseconds_to_radians(self.sep),
@@ -121,7 +120,7 @@ class Psf:
         return optics, source
 
 
-def add_noise_to_psf(PSF, seed: int = 0):
+def add_noise_to_psf(PSF, seed: int = 0, detector: bool = True, poisson: bool = True):
     """Adding poissonian and detector noise to PSF.
 
     Parameters
@@ -132,18 +131,28 @@ def add_noise_to_psf(PSF, seed: int = 0):
         seed : int, optional
             Seed for random number generator. The default is 0.
 
+        detector : bool, optional
+            Whether to add detector noise. The default is True.
+
+        poisson : bool, optional
+            Whether to add poissonian noise. The default is True.
+
     Returns
     -------
-        noisy_PSF : numpy array
+        PSF : numpy array
             Noisy PSF of Alpha Cen
     """
 
     key = [jr.PRNGKey(seed), jr.PRNGKey(seed + 1)]
-    noisy_PSF = jr.poisson(key[0], PSF)
-    det_noise = np.round(2 * jr.normal(key[1], noisy_PSF.shape), decimals=0).astype(int)
-    noisy_PSF += det_noise
 
-    return noisy_PSF
+    if poisson:
+        PSF = jr.poisson(key[0], PSF)
+    if detector:
+        # TODO: let user define detector noise level
+        det_noise = np.round(2 * jr.normal(key[1], PSF.shape), decimals=0).astype(int)
+        PSF += det_noise
+
+    return PSF
 
 
 def get_jitter_func(optics, source):
@@ -173,7 +182,7 @@ def get_jitter_func(optics, source):
     vmap_prop = vmap(set_and_model, in_axes=(None, None, 0))
     pixel_scale_out = optics.AngularMFT.pixel_scale_out  # arcseconds per pixel
 
-    def jitter_func(rad: float, angle: float = 0, centre: tuple = (0,0), npsf: int = 10):
+    def jitter_func(rad: float, angle: float = 0, centre: tuple = (0, 0), npsf: int = 10):
         """
         Returns a jittered PSF by summing a number of shifted PSFs.
 
@@ -197,10 +206,10 @@ def get_jitter_func(optics, source):
         angle = np.deg2rad(angle)  # converting to radius
 
         # converting to cartesian coordinates
-        x = rad/2 * np.cos(angle)
-        y = rad/2 * np.sin(angle)
-        xs = np.linspace(-x, x, npsf)  # pixels
-        ys = np.linspace(-y, y, npsf)  # pixels
+        x_lim = rad / 2 * np.cos(angle)
+        y_lim = rad / 2 * np.sin(angle)
+        xs = np.linspace(-x_lim, x_lim, npsf)  # pixels
+        ys = np.linspace(-y_lim, y_lim, npsf)  # pixels
         positions = pixel_scale_out * (np.stack([xs, ys], axis=1) + np.array(centre))  # arcseconds
 
         psfs = vmap_prop(optics, source, positions)
@@ -209,4 +218,3 @@ def get_jitter_func(optics, source):
         return jit_psf
 
     return jitter_func
-
