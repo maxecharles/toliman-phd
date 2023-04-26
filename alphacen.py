@@ -54,15 +54,11 @@ class Psf:
     bandpass_max = 645  # maximum wavelength in nm
     aperture = 0.125  # TOLIMAN aperture in m  #TODO: check this
 
-    def __init__(self, seed: int = 0, n_wavels: int = 3):
-        self.key = [jr.PRNGKey(seed), jr.PRNGKey(seed+1)]
+    def __init__(self, mask_dir: str, n_wavels: int = 3):
         self.wavels = 1e-9 * np.linspace(self.bandpass_min, self.bandpass_max, n_wavels)  # wavelengths in m
+        # loading mask, converting phase to OPD and turning mask into a layer
+        self.mask = dl.optics.AddOPD(dl.utils.phase_to_opd(np.load(mask_dir), wavelength=self.wavels.mean()))
         return
-
-    # loading mask, converting phase to OPD and turning mask into a layer
-    def LoadMask(self, mask_dir):
-        mask = dl.optics.AddOPD(dl.utils.phase_to_opd(np.load(mask_dir), wavelength=self.wavels.mean()))
-        return mask
 
     def GetInstrument(self,
                       mask,
@@ -124,29 +120,50 @@ class Psf:
 
         return optics, source
 
-    def AddNoise(self, PSF):  # TODO bring this out of the class
-        """Adding poissonian and detector noise to PSF.
 
-        Parameters
-        ----------
-            PSF : numpy array
-                Ideal PSF of Alpha Cen
+def add_noise_to_psf(PSF, seed: int = 0):
+    """Adding poissonian and detector noise to PSF.
 
-        Returns
-        -------
-            noisy_PSF : numpy array
-                Noisy PSF of Alpha Cen
-        """
+    Parameters
+    ----------
+        PSF : numpy array
+            Ideal PSF of Alpha Cen
 
-        noisy_PSF = jr.poisson(self.key[0], PSF)
-        det_noise = np.round(2 * jr.normal(self.key[1], noisy_PSF.shape), decimals=0).astype(int)
-        noisy_PSF += det_noise
+        seed : int, optional
+            Seed for random number generator. The default is 0.
 
-        return noisy_PSF
+    Returns
+    -------
+        noisy_PSF : numpy array
+            Noisy PSF of Alpha Cen
+    """
+
+    key = [jr.PRNGKey(seed), jr.PRNGKey(seed + 1)]
+    noisy_PSF = jr.poisson(key[0], PSF)
+    det_noise = np.round(2 * jr.normal(key[1], noisy_PSF.shape), decimals=0).astype(int)
+    noisy_PSF += det_noise
+
+    return noisy_PSF
 
 
-def GetJitterFunc(optics, source):
-    """Generates a function to add jitter to the PSF given an optics and source."""
+def get_jitter_func(optics, source):
+    """Generates a function to add jitter to the PSF given an optics and source.
+
+    Parameters
+    ----------
+
+    optics : dLux optical system
+        dLux optics system
+
+    source : dLux source
+        dLux source
+
+    Returns
+    -------
+
+    jitter_func : function
+        Function to add jitter to PSF
+    """
 
     # Defining a function to set the source position and propagate through the optics
     def set_and_model(optics, source, pos):
@@ -156,7 +173,7 @@ def GetJitterFunc(optics, source):
     vmap_prop = vmap(set_and_model, in_axes=(None, None, 0))
     pixel_scale_out = optics.AngularMFT.pixel_scale_out  # arcseconds per pixel
 
-    def JitterPSF(rad: float, angle: float = 0, centre: tuple = (0,0), npsf: int = 10):
+    def jitter_func(rad: float, angle: float = 0, centre: tuple = (0,0), npsf: int = 10):
         """
         Returns a jittered PSF by summing a number of shifted PSFs.
 
@@ -191,5 +208,5 @@ def GetJitterFunc(optics, source):
 
         return jit_psf
 
-    return JitterPSF
+    return jitter_func
 
