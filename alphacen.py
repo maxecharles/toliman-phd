@@ -219,3 +219,87 @@ def get_jitter_func(optics, source):
 
     return jitter_func
 
+
+def bandpass_flux(low: float, high: float):
+
+    """
+    Calculate the flux of a Alpha Centauri in a given bandpass, assuming 100% throughput.
+
+    Parameters
+    ----------
+    low : float
+        Lower bound wavelength of bandpass in nm.
+    high : float
+        Upper bound wavelength of bandpass in nm.
+
+    Returns
+    -------
+    A_flux : float
+        Flux of Alpha Centauri A in bandpass in photons per second per square centimetre.
+    B_flux : float
+        Flux of Alpha Centauri B in bandpass in photons per second per square centimetre.
+    """
+
+    import pysynphot as S
+    import os
+
+    os.chdir('/Users/mcha5804/Library/CloudStorage/OneDrive-TheUniversityofSydney(Students)/PyCharm/toliman-phd/data')
+    print(os.getcwd())
+    ALPHA_CEN_A_SURFACE_TEMP = 5790.0  # K
+    ALPHA_CEN_A_METALICITY = 0.2
+    ALPHA_CEN_A_SURFACE_GRAV = 4.0  # log(g)
+    ALPHA_CEN_A_MAGNITUDE = 0.01  # vega magnitude
+
+    ALPHA_CEN_B_SURFACE_TEMP = 5260.0  # K
+    ALPHA_CEN_B_METALICITY = 0.23
+    ALPHA_CEN_B_SURFACE_GRAV = 4.37  # log(g)
+    ALPHA_CEN_B_MAGNITUDE = 1.33  # vega magnitude
+
+    FILTER_MIN_WAVELENGTH = low  # nm
+    FILTER_MAX_WAVELENGTH = high  # nm
+
+    S.setref(graphtable='mtab/57g1733im_tmg.fits',
+             comptable='mtab/6cf2109gm_tmc.fits',
+             thermtable='mtab/3241637sm_tmt.fits',
+             )
+
+    A_sp = S.Icat(
+        "phoenix",
+        ALPHA_CEN_A_SURFACE_TEMP,
+        ALPHA_CEN_A_METALICITY,
+        ALPHA_CEN_A_SURFACE_GRAV,
+    )
+
+    B_sp = S.Icat(
+        "phoenix",
+        ALPHA_CEN_B_SURFACE_TEMP,
+        ALPHA_CEN_B_METALICITY,
+        ALPHA_CEN_B_SURFACE_GRAV,
+    )
+
+    # Renormalising to respective magnitudes
+    VBand = S.ObsBandpass('v')
+    A_sp = A_sp.renorm(RNval=ALPHA_CEN_A_MAGNITUDE, RNUnits='vegamag', band=VBand)
+    B_sp = B_sp.renorm(RNval=ALPHA_CEN_B_MAGNITUDE, RNUnits='vegamag', band=VBand)
+
+    # Converting units
+    A_sp.convert('nm')
+    A_sp.convert('Photlam')
+    B_sp.convert('nm')
+    B_sp.convert('Photlam')
+
+    # CREATING A BANDPASS
+    # converting to angstrom for pysynphot
+    centre = 10 * (FILTER_MIN_WAVELENGTH + FILTER_MAX_WAVELENGTH) / 2
+    bandwidth = 10 * (FILTER_MAX_WAVELENGTH - FILTER_MIN_WAVELENGTH)
+
+    bandpass = S.Box(centre, bandwidth)  # add efficiency factor here
+    bandpass.convert('nm')
+
+    A_obs = S.Observation(A_sp, bandpass)
+    B_obs = S.Observation(B_sp, bandpass)
+
+    A_flux = A_obs.integrate()
+    B_flux = B_obs.integrate()
+
+    return A_flux, B_flux
