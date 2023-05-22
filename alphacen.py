@@ -7,6 +7,7 @@ from jax import numpy as np
 from jax import random as jr
 from jax import vmap
 import dLux as dl
+import zodiax as zdx
 
 
 class AlphaCenPSF:
@@ -119,6 +120,41 @@ class AlphaCenPSF:
 
         return optics, source
 
+
+class TolimanJitter(zdx.Base):
+
+    def __init__(self,
+                 wavefront_npixels=256,
+                 detector_npixels=128,
+                 detector_pixel_size=0.3,
+                 bandpass: tuple = (545, 645),
+                 n_wavels: int = 3,
+                 ):
+
+        # TOLIMAN optics
+        self.optics = dl.utils.toliman(wavefront_npixels=wavefront_npixels,
+                                  detector_npixels=detector_npixels,
+                                  detector_pixel_size=detector_pixel_size,
+                                  )
+
+        # Wavelengths
+        self.wavels = 1e-9 * np.linspace(bandpass[0], bandpass[1], n_wavels)
+
+    def create_source(self,
+                      sep=10,
+                      pa=0,
+                      logF=6.229e7 / 10 / 2,
+                      cont=3.372873,
+                      ):
+
+        source = dl.BinarySource(separation=dl.utils.arcseconds_to_radians(sep),
+                                 wavelengths=self.wavels,
+                                 contrast=cont,
+                                 flux=10**logF,
+                                 position_angle=pa,
+                                 )
+
+        return source
 
 def add_noise_to_psf(PSF, seed: int = 0, detector: bool = True, poisson: bool = True):
     """Adding poissonian and detector noise to PSF.
