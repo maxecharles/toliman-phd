@@ -121,29 +121,33 @@ class AlphaCenPSF:
         return optics, source
 
 
-class TolimanJitter(zdx.Base):
+class TolimanJitter:
 
     def __init__(self,
                  wavefront_npixels=256,
                  detector_npixels=128,
-                 detector_pixel_size=0.3,
+                 detector_pixel_size=0.05,
+                 mask_dir = 'data/toliman_pupil',
                  bandpass: tuple = (545, 645),
                  n_wavels: int = 3,
                  ):
 
-        # TOLIMAN optics
-        self.optics = dl.utils.toliman(wavefront_npixels=wavefront_npixels,
-                                  detector_npixels=detector_npixels,
-                                  detector_pixel_size=detector_pixel_size,
-                                  )
-
         # Wavelengths
         self.wavels = 1e-9 * np.linspace(bandpass[0], bandpass[1], n_wavels)
+
+        mask = dl.optics.AddOPD(dl.utils.phase_to_opd(np.load(mask_dir), wavelength=self.wavels.mean()))
+
+        # TOLIMAN optics
+        self.optics = dl.utils.toliman(wavefront_npixels=wavefront_npixels,
+                                       detector_npixels=detector_npixels,
+                                       detector_pixel_size=detector_pixel_size,
+                                       extra_layers=[mask],
+                                       )
 
     def create_source(self,
                       sep=10,
                       pa=0,
-                      logF=6.229e7 / 10 / 2,
+                      logF=np.log10(6.229e7 / 10 / 2),
                       cont=3.372873,
                       ):
 
