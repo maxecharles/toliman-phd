@@ -41,8 +41,8 @@ class AlphaCenPSF:
     contrast = 3.372873  # flux contrast from V band magnitudes
 
     # TOLIMAN optical parameters
-    bandpass_min = 545  # minimum wavelength in nm
-    bandpass_max = 645  # maximum wavelength in nm
+    bandpass_min = 530  # minimum wavelength in nm
+    bandpass_max = 640  # maximum wavelength in nm
     aperture = 0.125  # TOLIMAN aperture in m  # TODO: check this
 
     def __init__(self, mask_dir: str, n_wavels: int = 3):
