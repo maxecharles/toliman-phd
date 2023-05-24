@@ -127,7 +127,7 @@ class TolimanJitter:
                  wavefront_npixels=256,
                  detector_npixels=128,
                  detector_pixel_size=0.05,
-                 mask_dir = 'data/toliman_pupil',
+                 mask_dir='data/toliman_pupil.npy',
                  bandpass: tuple = (545, 645),
                  n_wavels: int = 3,
                  ):
