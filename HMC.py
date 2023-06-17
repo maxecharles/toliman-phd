@@ -12,14 +12,15 @@ def main():
     import numpyro as npy
     import numpyro.distributions as dist
     import chainconsumer as cc
+    import matplotlib.pyplot as plt
 
     ##############################
-    warmup = 20
-    samples = 100
+    warmup = 500
+    samples = 10000
 
     indices = np.array([  # which parameters to fit for in the MCMC
-        # 0,  # x_position
-        # 1,  # y_position
+        0,  # x_position
+        1,  # y_position
         2,  # separation
         3,  # position_angle
         4,  # log_flux
@@ -27,12 +28,12 @@ def main():
     ])
 
     priors = np.array([  # (high, low) of uniform distribution
-        (-1, 1),  # x_position
-        (-1, 1),  # y_position
-        (6, 10),  # separation
-        (0, 360),  # position_angle
-        (5, 8),  # log_flux
-        (3, 4),  # contrast
+        (-0.1, 0.1),  # x_position
+        (-0.1, 0.1),  # y_position
+        (7, 8),  # separation
+        (20, 30),  # position_angle
+        (6, 6.5),  # log_flux
+        (3, 3.5),  # contrast
     ])[indices]
     ################################
 
@@ -58,9 +59,6 @@ def main():
     distributions = [dist.Uniform(*p) for p in priors]
 
     def psf_model(data, model):
-        """
-        Define the numpyro function for MCMC
-        """
         # sampling from the distributions
         values = [npy.sample(name=names[i], fn=distributions[i]) for i in range(len(indices))]
 
@@ -75,15 +73,24 @@ def main():
                          rng_key=jr.PRNGKey(i)
                          ) for i in range(len(indices))]
 
+    param_dict = {names[i]: np.tile(truths[i], device_count()) for i in range(len(indices))}
+
     # generating data with truth values
     optics = TolimanOptics(psf_npixels=128, psf_oversample=1.5)
-    source = AlphaCen().set(param_list, truths)
+    source = AlphaCen(nwavels=3).set(param_list, truths)
     telescope = Toliman(optics, source)
     psf = telescope.model()
     # adding noise
     psf_photon = jr.poisson(jr.PRNGKey(0), psf)
     bg_noise = 3 * jr.normal(jr.PRNGKey(0), psf_photon.shape)
     data = psf_photon + np.abs(bg_noise)
+
+    # # sanity check
+    # plt.imshow(data**.5, cmap='inferno')
+    # plt.colorbar()
+    # plt.savefig('figs/mcmc/data.png')
+    # print("Truth values: ", truths)
+    # print(f"Source dict: {source.__dict__}")
 
     # running MCMC
     sampler = npy.infer.MCMC(
@@ -93,7 +100,8 @@ def main():
         num_chains=device_count(),
         progress_bar=True,
     )
-    sampler.run(jr.PRNGKey(0), data, telescope)
+
+    sampler.run(jr.PRNGKey(0), data, telescope, init_params=param_dict)
 
     # analysing output
     sampler.print_summary()
@@ -104,8 +112,8 @@ def main():
     chain.add_chain(values_out)  # , parameters=param_list, name="Recovered Parameters")
     chain.configure(serif=True, shade=True, bar_shade=True, shade_alpha=0.2, spacing=1., max_ticks=3)
     fig = chain.plotter.plot(truth=truths)
-    fig.set_size_inches((6, 6))
-    fig.savefig("figs/test.png", dpi=120)
+    fig.set_size_inches((12, 12))
+    fig.savefig("figs/mcmc/output.png", dpi=120)
 
 
 if __name__ == '__main__':
