@@ -16,7 +16,7 @@ def main():
 
     ##############################
     warmup = 500
-    samples = 10000
+    samples = 4500
 
     indices = np.array([  # which parameters to fit for in the MCMC
         0,  # x_position
@@ -32,8 +32,8 @@ def main():
         (-0.1, 0.1),  # y_position
         (7, 8),  # separation
         (20, 30),  # position_angle
-        (6, 6.5),  # log_flux
-        (3, 3.5),  # contrast
+        (6.2, 6.5),  # log_flux
+        (3.2, 3.5),  # contrast
     ])[indices]
     ################################
 
@@ -73,6 +73,9 @@ def main():
                          rng_key=jr.PRNGKey(i)
                          ) for i in range(len(indices))]
 
+    for name, value in zip(names, truths):
+        print(f"{name} = {value}")
+
     param_dict = {names[i]: np.tile(truths[i], device_count()) for i in range(len(indices))}
 
     # generating data with truth values
@@ -84,13 +87,6 @@ def main():
     psf_photon = jr.poisson(jr.PRNGKey(0), psf)
     bg_noise = 3 * jr.normal(jr.PRNGKey(0), psf_photon.shape)
     data = psf_photon + np.abs(bg_noise)
-
-    # # sanity check
-    # plt.imshow(data**.5, cmap='inferno')
-    # plt.colorbar()
-    # plt.savefig('figs/mcmc/data.png')
-    # print("Truth values: ", truths)
-    # print(f"Source dict: {source.__dict__}")
 
     # running MCMC
     sampler = npy.infer.MCMC(
