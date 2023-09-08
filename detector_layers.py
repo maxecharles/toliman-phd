@@ -1,3 +1,4 @@
+import jax
 from jax import numpy as np
 from jax import Array
 from jax.scipy.stats import multivariate_normal
@@ -9,16 +10,16 @@ Image = lambda: dl.images.Image
 
 class ApplyAsymmetricJitter(DetectorLayer):
     kernel_size: int
-    cov: Array | None
-    params: list | None
+    r: float = None
+    shear: float = None
+    phi: float = None
 
     def __init__(
-        self: DetectorLayer,
-        r: float = None,
-        shear: float = None,
-        phi: float = None,
-        kernel_size: int = 10,
-        cov: Array = None,
+            self: DetectorLayer,
+            r: float,
+            shear: float = 0,
+            phi: float = 0,
+            kernel_size: int = 10,
     ):
         """
         Constructor for the ApplyJitter class.
@@ -33,39 +34,16 @@ class ApplyAsymmetricJitter(DetectorLayer):
             The angle of the jitter.
         kernel_size : int = 10
             The size of the convolution kernel in pixels to use.
-        cov : Array, pixels
-            The covariance matrix of the Gaussian kernel, in units of arcseconds.
-            Must be a 2x2, symmetric, positive semi-definite matrix. If specified, r, shear, and phi are ignored.
         """
         super().__init__()
         self.kernel_size = int(kernel_size)
+        self.r = r
+        self.shear = shear
+        self.phi = phi
 
-        if cov is not None:
-            if cov.shape != (2, 2):
-                raise ValueError("Covariance matrix must be 2x2.")
-            if not np.allclose(cov, cov.T):
-                raise ValueError("Covariance matrix must be symmetric.")
-            eigvals = np.linalg.eigvals(cov)
-            if np.any(eigvals <= 0):
-                raise ValueError(
-                    "The covariance matrix must be positive semi-definite."
-                )
-
-            self.cov = np.asarray(cov, dtype=float)
-            self.params = None
-
-        elif r is not None and shear is not None and phi is not None:
-            self.cov = self._generate_covariance_matrix(r, shear, phi)
-            self.params = [r, shear, phi]
-
-        else:
-            raise ValueError(
-                "Must specify either covariance matrix or r, shear, and phi."
-            )
-
-    @staticmethod
-    def _generate_covariance_matrix(r, shear, phi):
-        angle_rad = np.radians(phi)
+    @property
+    def covariance_matrix(self):
+        angle_rad = np.radians(self.phi)
 
         # Construct the rotation matrix
         rotation_matrix = np.array(
@@ -77,22 +55,21 @@ class ApplyAsymmetricJitter(DetectorLayer):
 
         # Construct the skew matrix
         skew_matrix = np.array(
-            [[1, shear], [shear, 1]]
+            [[1, self.shear], [self.shear, 1]]
         )  # Ensure skew_matrix is symmetric
 
         # Compute the covariance matrix
-        covariance_matrix = r * np.dot(
+        covariance_matrix = self.r * np.dot(
             np.dot(rotation_matrix, skew_matrix), rotation_matrix.T
         )
 
         # Ensure positive semi-definiteness
-        eigvals = np.linalg.eigvals(covariance_matrix)
-        if np.any(eigvals <= 0):
-            raise ValueError(
-                "The resulting covariance matrix is not positive semi-definite."
-            )
-
-        return covariance_matrix
+        try:
+            # Attempt Cholesky decomposition
+            jax.scipy.linalg.cholesky(covariance_matrix)
+            return covariance_matrix
+        except:
+            raise ValueError("Covariance matrix is not positive semi-definite.")
 
     def generate_kernel(self, pixel_scale: float) -> Array:
         """
@@ -114,7 +91,7 @@ class ApplyAsymmetricJitter(DetectorLayer):
         xs, ys = np.meshgrid(x, x)
         pos = np.dstack((xs, ys))
 
-        kernel = multivariate_normal.pdf(pos, mean=np.array([0.0, 0.0]), cov=self.cov)
+        kernel = multivariate_normal.pdf(pos, mean=np.array([0.0, 0.0]), cov=self.covariance_matrix)
 
         return kernel / np.sum(kernel)
 
