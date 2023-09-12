@@ -43,13 +43,13 @@ class ApplyAsymmetricJitter(DetectorLayer):
 
     @property
     def covariance_matrix(self):
-        angle_rad = np.radians(self.phi)
+        rot_angle = np.radians(self.phi) - np.pi / 4
 
         # Construct the rotation matrix
         rotation_matrix = np.array(
             [
-                [np.cos(angle_rad), -np.sin(angle_rad)],
-                [np.sin(angle_rad), np.cos(angle_rad)],
+                [np.cos(rot_angle), -np.sin(rot_angle)],
+                [np.sin(rot_angle), np.cos(rot_angle)],
             ]
         )
 
@@ -69,6 +69,7 @@ class ApplyAsymmetricJitter(DetectorLayer):
             jax.scipy.linalg.cholesky(covariance_matrix)
             return covariance_matrix
         except:
+            # TODO don't think this works
             raise ValueError("Covariance matrix is not positive semi-definite.")
 
     def generate_kernel(self, pixel_scale: float) -> Array:
