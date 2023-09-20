@@ -33,7 +33,7 @@ class ApplyJitter(DetectorLayer):
     def __init__(
         self: DetectorLayer,
         r: float,
-        shear: float = 0,
+        shear: float = 1,
         phi: float = 0,
         kernel_size: int = 10,
     ):
@@ -43,11 +43,15 @@ class ApplyJitter(DetectorLayer):
         Parameters
         ----------
         r : float, arcseconds
-            The standard deviation of the jitter in arcseconds.
+            The jitter magnitude in arcseconds, defined as the standard deviation
+            of the multivariate Gaussian kernel along the major axis. For a
+            symmetric jitter (shear = 1), r is simply the standard deviation.
         shear : float
-            The shear of the jitter. Must lie on the interval [0, 1).
-            A radially symmetric Gaussian kernel would have a shear value of 0,
-            whereas a shear value approaching 1 would approach a linear kernel.
+            A measure of how asymmetric the jitter is. Defined as the ratio between
+            the standard deviations of the minor/major axes of the multivariate
+            Gaussian kernel. It must lie on the interval (0, 1]. A shear of 1
+            corresponds to a symmetric jitter, while as shear approaches zero the
+            jitter kernel becomes more linear.
         phi : float
             The angle of the jitter in degrees.
         kernel_size : int = 10
@@ -56,8 +60,8 @@ class ApplyJitter(DetectorLayer):
         super().__init__()
 
         # checking shear is valid
-        if shear >= 1 or shear < 0:
-            raise ValueError("shear must lie on the interval [0, 1)")
+        if shear > 1 or shear <= 0:
+            raise ValueError("shear must lie on the interval (0, 1]")
 
         self.kernel_size = int(kernel_size)
         self.r = r
@@ -75,11 +79,11 @@ class ApplyJitter(DetectorLayer):
             The covariance matrix.
         """
         # Compute the rotation angle
-        # the -pi/4 offset is such that the rotation angle is relative to the x-axis rather than the line y=x
-        rot_angle = np.radians(self.phi) - np.pi / 4
+        # the -'ve sign is simply so it rotates in a more intuitive direction
+        rot_angle = -np.radians(self.phi)
 
         # Construct the rotation matrix
-        rotation_matrix = np.array(
+        R = np.array(
             [
                 [np.cos(rot_angle), -np.sin(rot_angle)],
                 [np.sin(rot_angle), np.cos(rot_angle)],
@@ -87,17 +91,15 @@ class ApplyJitter(DetectorLayer):
         )
 
         # Construct the skew matrix
-        skew_matrix = np.array(
+        base_matrix = np.array(
             [
-                [1, self.shear],
-                [self.shear, 1],
+                [self.r**2, 0],
+                [0, (self.r * self.shear) ** 2],
             ]
-        )  # Ensure skew_matrix is symmetric
+        )
 
         # Compute the covariance matrix
-        covariance_matrix = (self.r**2) * np.dot(
-            np.dot(rotation_matrix, skew_matrix), rotation_matrix.T
-        )
+        covariance_matrix = np.dot(np.dot(R, base_matrix), R.T)
 
         return covariance_matrix
 
