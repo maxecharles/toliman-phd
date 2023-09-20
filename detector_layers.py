@@ -3,23 +3,39 @@ from jax import numpy as np
 from jax import Array
 from jax.scipy.stats import multivariate_normal
 from dLux.detector_layers import DetectorLayer
-import dLux as dl
+import dLux
 
-Image = lambda: dl.images.Image
+Image = lambda: dLux.images.Image
 
 
-class ApplyAsymmetricJitter(DetectorLayer):
+class ApplyJitter(DetectorLayer):
+    """
+    Convolves the image with a Gaussian kernel parameterised by the standard
+    deviation (sigma).
+
+    Attributes
+    ----------
+    kernel_size : int
+        The size in pixels of the convolution kernel to use.
+    r : float, arcseconds
+        The magnitude of the jitter.
+    shear : float
+        The shear of the jitter.
+    phi : float, degrees
+        The angle of the jitter.
+    """
+
     kernel_size: int
     r: float = None
     shear: float = None
     phi: float = None
 
     def __init__(
-            self: DetectorLayer,
-            r: float,
-            shear: float = 0,
-            phi: float = 0,
-            kernel_size: int = 10,
+        self: DetectorLayer,
+        r: float,
+        shear: float = 0,
+        phi: float = 0,
+        kernel_size: int = 10,
     ):
         """
         Constructor for the ApplyJitter class.
@@ -27,15 +43,22 @@ class ApplyAsymmetricJitter(DetectorLayer):
         Parameters
         ----------
         r : float, arcseconds
-            The magnitude of the jitter.
+            The standard deviation of the jitter in arcseconds.
         shear : float
-            The shear of the jitter.
-        phi : float, degrees
-            The angle of the jitter.
+            The shear of the jitter. Must lie on the interval [0, 1).
+            A radially symmetric Gaussian kernel would have a shear value of 0,
+            whereas a shear value approaching 1 would approach a linear kernel.
+        phi : float
+            The angle of the jitter in degrees.
         kernel_size : int = 10
             The size of the convolution kernel in pixels to use.
         """
         super().__init__()
+
+        # checking shear is valid
+        if shear >= 1 or shear < 0:
+            raise ValueError("shear must lie on the interval [0, 1)")
+
         self.kernel_size = int(kernel_size)
         self.r = r
         self.shear = shear
@@ -43,6 +66,16 @@ class ApplyAsymmetricJitter(DetectorLayer):
 
     @property
     def covariance_matrix(self):
+        """
+        Generates the covariance matrix for the multivariate normal distribution.
+
+        Returns
+        -------
+        covariance_matrix : Array
+            The covariance matrix.
+        """
+        # Compute the rotation angle
+        # the -pi/4 offset is such that the rotation angle is relative to the x-axis rather than the line y=x
         rot_angle = np.radians(self.phi) - np.pi / 4
 
         # Construct the rotation matrix
@@ -55,31 +88,27 @@ class ApplyAsymmetricJitter(DetectorLayer):
 
         # Construct the skew matrix
         skew_matrix = np.array(
-            [[1, self.shear], [self.shear, 1]]
+            [
+                [1, self.shear],
+                [self.shear, 1],
+            ]
         )  # Ensure skew_matrix is symmetric
 
         # Compute the covariance matrix
-        covariance_matrix = self.r * np.dot(
+        covariance_matrix = (self.r**2) * np.dot(
             np.dot(rotation_matrix, skew_matrix), rotation_matrix.T
         )
 
-        # Ensure positive semi-definiteness
-        try:
-            # Attempt Cholesky decomposition
-            jax.scipy.linalg.cholesky(covariance_matrix)
-            return covariance_matrix
-        except:
-            # TODO don't think this works
-            raise ValueError("Covariance matrix is not positive semi-definite.")
+        return covariance_matrix
 
     def generate_kernel(self, pixel_scale: float) -> Array:
         """
-        Generates the normalised Gaussian kernel.
+        Generates the normalised multivariate Gaussian kernel.
 
         Parameters
         ----------
-        pixel_scale : float, arcsec/pixel
-            The pixel scale of the image.
+        pixel_scale : float
+            The pixel scale of the image in arcseconds per pixel.
 
         Returns
         -------
@@ -92,7 +121,9 @@ class ApplyAsymmetricJitter(DetectorLayer):
         xs, ys = np.meshgrid(x, x)
         pos = np.dstack((xs, ys))
 
-        kernel = multivariate_normal.pdf(pos, mean=np.array([0.0, 0.0]), cov=self.covariance_matrix)
+        kernel = multivariate_normal.pdf(
+            pos, mean=np.array([0.0, 0.0]), cov=self.covariance_matrix
+        )
 
         return kernel / np.sum(kernel)
 
@@ -110,6 +141,6 @@ class ApplyAsymmetricJitter(DetectorLayer):
         image : Image
             The transformed image.
         """
-        kernel = self.generate_kernel(dl.utils.rad_to_arcsec(image.pixel_scale))
+        kernel = self.generate_kernel(dLux.utils.rad_to_arcsec(image.pixel_scale))
 
         return image.convolve(kernel)
