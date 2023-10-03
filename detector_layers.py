@@ -4,6 +4,7 @@ from jax import Array
 from jax.scipy.stats import multivariate_normal
 from dLux.detector_layers import DetectorLayer
 import dLux
+import dLux.utils as dlu
 
 Image = lambda: dLux.images.Image
 
@@ -29,28 +30,31 @@ class ApplyJitter(DetectorLayer):
     r: float = None
     shear: float = None
     phi: float = None
+    kernel_oversample: int = None
 
     def __init__(
         self: DetectorLayer,
         r: float,
-        shear: float = 1,
+        shear: float = 0,
         phi: float = 0,
         kernel_size: int = 10,
+        kernel_oversample: int = 1,
     ):
         """
         Constructor for the ApplyJitter class.
 
         Parameters
         ----------
-        r : float, arcseconds
-            The jitter magnitude in arcseconds, defined as the standard deviation
-            of the multivariate Gaussian kernel along the major axis. For a
-            symmetric jitter (shear = 1), r is simply the standard deviation.
-        shear : float
-            A measure of how asymmetric the jitter is. Defined as the ratio between
+        r : float
+            The jitter magnitude, defined as the determinant of the covariance
+            matrix of the multivariate Gaussian kernel. This is the product of the
+            standard deviations of the minor and major axes of the kernel, given in
+            arcseconds.
+        shear : float, [0, 1)
+            A measure of how asymmetric the jitter is. Defined as one minus the ratio between
             the standard deviations of the minor/major axes of the multivariate
-            Gaussian kernel. It must lie on the interval (0, 1]. A shear of 1
-            corresponds to a symmetric jitter, while as shear approaches zero the
+            Gaussian kernel. It must lie on the interval [0, 1). A shear of 0
+            corresponds to a symmetric jitter, while as shear approaches one the
             jitter kernel becomes more linear.
         phi : float
             The angle of the jitter in degrees.
@@ -60,13 +64,14 @@ class ApplyJitter(DetectorLayer):
         super().__init__()
 
         # checking shear is valid
-        if shear > 1 or shear <= 0:
-            raise ValueError("shear must lie on the interval (0, 1]")
+        if shear >= 1 or shear < 0:
+            raise ValueError("shear must lie on the interval [0, 1)")
 
         self.kernel_size = int(kernel_size)
         self.r = r
         self.shear = shear
         self.phi = phi
+        self.kernel_oversample = int(kernel_oversample)
 
     @property
     def covariance_matrix(self):
@@ -89,11 +94,15 @@ class ApplyJitter(DetectorLayer):
             ]
         )
 
+        # calculating the eigenvalues (lambda1 > lambda2)
+        lambda1 = (self.r / (1 - self.shear))**0.25
+        lambda2 = lambda1 * (1 - self.shear)
+
         # Construct the skew matrix
         base_matrix = np.array(
             [
-                [self.r**2, 0],
-                [0, (self.r * self.shear) ** 2],
+                [lambda1**2, 0],
+                [0, lambda2**2],
             ]
         )
 
@@ -118,13 +127,13 @@ class ApplyJitter(DetectorLayer):
         """
         # Generate distribution
         extent = pixel_scale * self.kernel_size  # kernel size in arcseconds
-        x = np.linspace(0, extent, self.kernel_size) - 0.5 * extent
+        x = np.linspace(0, extent, self.kernel_oversample * self.kernel_size) - 0.5 * extent
         xs, ys = np.meshgrid(x, x)
         pos = np.dstack((xs, ys))
 
-        kernel = multivariate_normal.pdf(
+        kernel = dlu.downsample(multivariate_normal.pdf(
             pos, mean=np.array([0.0, 0.0]), cov=self.covariance_matrix
-        )
+        ), self.kernel_oversample)
 
         return kernel / np.sum(kernel)
 
