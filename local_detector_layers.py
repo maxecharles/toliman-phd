@@ -2,14 +2,56 @@ import jax
 from jax import numpy as np
 from jax import Array
 from jax.scipy.stats import multivariate_normal
-from dLux.detector_layers import DetectorLayer
+from dLux.layers.detector_layers import DetectorLayer
 import dLux
 import dLux.utils as dlu
 
 Image = lambda: dLux.images.Image
 
 
-class ApplyJitter(DetectorLayer):
+class BaseJitter(DetectorLayer):
+    """
+    Base class for jitter layers.
+    """
+
+    kernel_size: int
+    kernel_oversample: int
+
+    def __init__(self: DetectorLayer, kernel_size: int = 11, kernel_oversample: int = 1):
+        """
+        Constructor for the BaseJitter class.
+        """
+
+        super().__init__()
+        if kernel_size % 2 == 0:
+            raise ValueError("kernel_size must be an odd integer")
+        self.kernel_size = int(kernel_size)
+        self.kernel_oversample = int(kernel_oversample)
+        
+
+    def apply(self: DetectorLayer, image: Image()) -> Image():
+        """
+        Applies the layer to the Image.
+
+        Parameters
+        ----------
+        image : Image
+            The image to operate on.
+
+        Returns
+        -------
+        image : Image
+            The transformed image.
+        """
+        kernel = self.generate_kernel(dLux.utils.rad_to_arcsec(image.pixel_scale))
+
+        return image.convolve(kernel)
+    
+    def generate_kernel(self, pixel_scale: float) -> Array:
+        pass
+
+
+class ApplyJitter(BaseJitter):
     """
     Convolves the image with a Gaussian kernel parameterised by the standard
     deviation (sigma).
@@ -26,14 +68,12 @@ class ApplyJitter(DetectorLayer):
         The angle of the jitter.
     """
 
-    kernel_size: int
     r: float = None
     shear: float = None
     phi: float = None
-    kernel_oversample: int = None
 
     def __init__(
-        self: DetectorLayer,
+        self: BaseJitter,
         r: float,
         shear: float = 0,
         phi: float = 0,
@@ -67,11 +107,11 @@ class ApplyJitter(DetectorLayer):
         if shear >= 1 or shear < 0:
             raise ValueError("shear must lie on the interval [0, 1)")
 
-        self.kernel_size = int(kernel_size)
         self.r = r
         self.shear = shear
         self.phi = phi
         self.kernel_oversample = int(kernel_oversample)
+        self.kernel_size = int(kernel_size)
 
     @property
     def covariance_matrix(self):
@@ -107,7 +147,7 @@ class ApplyJitter(DetectorLayer):
         )
 
         # Compute the covariance matrix
-        covariance_matrix = np.dot(np.dot(R, base_matrix), R.T)
+        covariance_matrix = np.dot(np.dot(R, base_matrix), R.T)  # TODO use dLux.utils.rotate
 
         return covariance_matrix
 
@@ -137,20 +177,59 @@ class ApplyJitter(DetectorLayer):
 
         return kernel / np.sum(kernel)
 
-    def __call__(self: DetectorLayer, image: Image()) -> Image():
+
+
+class ApplySHMJitter(DetectorLayer):
+    """
+    A class to simulate the effect of a one-dimensional simple harmonic jitter.
+    This would be used in the case that the jitter is dominated by a single
+    high-frequency vibration.
+    """
+    
+    A: float
+    phi: float
+
+    def __init__(
+        self: DetectorLayer,
+        A: float,  # amplitude
+        phi: float,  # angle
+        kernel_size: int = 11,
+        kernel_oversample: int = 1,
+    ):
         """
-        Applies the layer to the Image.
+        Constructor for the ApplySHMJitter class.
 
         Parameters
         ----------
-        image : Image
-            The image to operate on.
+        A : float, arcseconds
+            The amplitude of the oscillation.
+        phi : float, deg
+            The angle of the jitter in degrees.
+        kernel_size : int = 11
+            The size of the convolution kernel in pixels to use.
+        kernel_oversample : int = 1
+            The oversampling factor for the kernel generation.
+        """
+        super().__init__()
+
+        self.A = A
+        self.phi = phi
+        self.kernel_oversample = int(kernel_oversample)
+        self.kernel_size = int(kernel_size)
+
+    def generate_kernel(self, pixel_scale: float) -> Array:
+        """
+        Generates the normalised multivariate Gaussian kernel.
+
+        Parameters
+        ----------
+        pixel_scale : float
+            The pixel scale of the image in arcseconds per pixel.
 
         Returns
         -------
-        image : Image
-            The transformed image.
+        kernel : Array
+            The normalised convolution kernel.
         """
-        kernel = self.generate_kernel(dLux.utils.rad_to_arcsec(image.pixel_scale))
-
-        return image.convolve(kernel)
+        # Generate distribution
+        extent = pixel_scale * self.kernel_size
